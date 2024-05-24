@@ -7,16 +7,19 @@ The original description is below.
 What i tried to change was:
 - RX only running on one state machine instead of 2
 - having only one TX program instead of 4
+
 How it could be achieved:
 - fequency for RX was increased to 120 MHz (was 96)
 - synchronizing was reduced
 - inverting output and changing jump adrresses for TX in dependence of the requirements
 - surrounding files had to be adapted
+
 Experiences:
 - couldn't find any disadvantages
 - worked with 4 root ports (and one regular device port) as a midi interface
 - a simple device example did work, too
 - swapping data pins did work
+
 How to try it out:
 - if Pico-Pio-Usb is installed, just overwrite the existing files in tinyusb/hw/mcu/raspberry_pi/Pico-PIO-USB/src
 - or copy everything into a subdirectory of your project with adding the following to the projects CMakeLists.txt:
