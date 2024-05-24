@@ -38,7 +38,6 @@ static void __no_inline_not_in_flash_func(update_ep0_crc5_lut)(uint8_t addr) {
 
 static __always_inline void restart_usb_reveiver(pio_port_t *pp) {
   pio_sm_exec(pp->pio_usb_rx, pp->sm_rx, pp->rx_reset_instr);
-  pio_sm_exec(pp->pio_usb_rx, pp->sm_rx, pp->rx_reset_instr2);
   pio_sm_restart(pp->pio_usb_rx, pp->sm_rx);
   pp->pio_usb_rx->irq = IRQ_RX_ALL_MASK;
 }
@@ -105,6 +104,7 @@ static void __no_inline_not_in_flash_func(usb_device_packet_handler)(void) {
     uint16_t const xact_len = pio_usb_ll_get_transaction_len(ep);
 
     pio_sm_set_enabled(pp->pio_usb_rx, pp->sm_rx, false);
+
     volatile bool has_transfer = ep->has_transfer;
 
     if (has_transfer) {
@@ -222,25 +222,23 @@ usb_device_t *pio_usb_device_init(const pio_usb_configuration_t *c,
 
   float const cpu_freq = (float)clock_get_hz(clk_sys);
 
+
   pio_calculate_clkdiv_from_float(cpu_freq / 48000000,
                                   &pp->clk_div_fs_tx.div_int,
                                   &pp->clk_div_fs_tx.div_frac);
-  pio_calculate_clkdiv_from_float(cpu_freq / 96000000,
+  pio_calculate_clkdiv_from_float(cpu_freq / 120000000,
                                   &pp->clk_div_fs_rx.div_int,
                                   &pp->clk_div_fs_rx.div_frac);
 
-  pio_sm_set_jmp_pin(pp->pio_usb_rx, pp->sm_rx, rport->pin_dp);
-  SM_SET_CLKDIV_MAXSPEED(pp->pio_usb_rx, pp->sm_rx);
-
-  pio_sm_set_jmp_pin(pp->pio_usb_rx, pp->sm_eop, rport->pin_dm);
-  pio_sm_set_in_pins(pp->pio_usb_rx, pp->sm_eop, rport->pin_dp);
-  SM_SET_CLKDIV(pp->pio_usb_rx, pp->sm_eop, pp->clk_div_fs_rx);
+  pio_sm_set_jmp_pin(pp->pio_usb_rx, pp->sm_rx, rport->pin_dm);
+  SM_SET_CLKDIV(pp->pio_usb_rx, pp->sm_rx, pp->clk_div_fs_rx);
+  pio_sm_set_in_pins(pp->pio_usb_rx, pp->sm_rx, rport->pin_dp);
 
   descriptor_buffers = *buffers;
 
   pio_sm_set_enabled(pp->pio_usb_tx, pp->sm_tx, true);
   pio_usb_bus_prepare_receive(pp);
-  pp->pio_usb_rx->ctrl |= (1 << pp->sm_rx);
+  pp->pio_usb_rx->ctrl |= (1 << pp->sm_rx);       // = set enabled
   pp->pio_usb_rx->irq |= IRQ_RX_ALL_MASK;
 
   // configure PIOx_IRQ_0 to detect packet receive start

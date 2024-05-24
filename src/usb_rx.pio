@@ -1,166 +1,147 @@
-
 ; Copyright (c) 2021-2022 sekigon-gonnoc
+; modified by georg laska (moseltronics)
 
-.define public IRQ_RX_BS_ERR    1   ; bit stuffinc error
+.define public IRQ_RX_BS_ERR    1   ; bit stuffin error
 .define public IRQ_RX_EOP       2   ; eop detect flag
 .define public IRQ_RX_START     3   ; packet start flag
-.define public DECODER_TRIGGER  4
 
-.define BIT_REPEAT_COUNT 6        ; bit repeat counter
+.define public USB_RX_START_OFFSET 1
 
-.define db0 0
-.define db1 1
-
-; USB signal edge and eop detector
-; 17 instruction
+; both d+/d- must be input invert overrided
 ;            FS(12M)  LS(1.5M)
-; Run at     96MHz    12MHz
+; Run at     120MHz   15MHz
 ; jmp_pin    d-       d+ 
 ; in_pin     d+       d-
-; both d+/d- pin should be input invert overrideed
-.program usb_edge_detector
+.define BIT_REPEAT_COUNT 6      ; bit repeat counter
+
+.program usb_nrzi_rx
+
+;  32 instructions
+
 eop:
     irq wait IRQ_RX_EOP
 start:
-    jmp pin start               ; Wait fall edge
+    jmp pin start             ; Wait for falling edge
     irq IRQ_RX_START [1]
-
 .wrap_target
-pin_still_low:
-    irq DECODER_TRIGGER [1]		; Trigger NRZI decoder
+reset_B:
+    set y, BIT_REPEAT_COUNT
+new_high:
+    jmp pin pin_high_B
+    jmp !y stuffbit_B
+    in NULL,1
+sync:
+    jmp pin sync_02 [1]       ;detect desync of min. ~15% of a bit
+    jmp pin sync_02           ;correctíon value is max. 10% of a bit
+    jmp pin sync_02
+sync_01:
+    jmp reset_A [1]
+;sync
+pin_high_B:
+    mov osr,pins              ; d+ (input mapping)
+    out x,1
+    jmp x-- eop               ; both data lines zero
+    jmp y--,no_stuffbit_B [2]
+interstep:
+    jmp reset_B [1]
+no_stuffbit_B:
+    ;set x, 0x01              ;x is -1 here, so LSB is 1
+    in x,1 [1]
+    jmp new_high
 
-; Resync on rising edge
-pin_low:
-    jmp pin pin_went_high
-pin_went_low:
-    jmp pin pin_went_high
-    jmp pin pin_went_high
-    jmp pin pin_went_high
-    jmp pin pin_went_high
-    jmp pin pin_went_high
-.wrap
+stuffbit_B:
+    nop [6]
+reset_A:
+    set y, BIT_REPEAT_COUNT
+new_low:
+    jmp pin pin_high_A
+    jmp y--,no_stuffbit_A
+    jmp reset_A [6]
+no_stuffbit_A:
+    set x, 0x01
+    in x,1
+    jmp new_low [5]
 
-pin_still_high:
-    mov x, isr [2] 
-    jmp x-- eop	     		    ; Jump to eop if jmp_pin and in_pin are high because both inputs are inverted
-; Jump to here on rising edge
-pin_went_high:
-    mov isr, null
-    in pins, 1                  ; Capture the pin to check eop.
-    irq DECODER_TRIGGER			; Trigger NRZI decoder
-    jmp pin pin_still_high
-    jmp pin_went_low            ; To adjust interval of decoder trigger, jump to pin_went_low (not pin_low)
+pin_high_A:
+    mov osr,pins
+    out x,1
+    jmp x-- eop
+    jmp !y interstep [2]
+    in NULL,1 [1]
+    .wrap
 
-.program usb_edge_detector_debug
-.side_set 1
-eop:
-    irq wait IRQ_RX_EOP     side db0
-start:
-    jmp pin start           side db1     ; Wait fall edge
-    irq IRQ_RX_START [1]    side db0
+sync_02:
+    jmp sync_01
 
-.wrap_target
-pin_still_low:
-    irq DECODER_TRIGGER [1]	side db0	 ; Trigger NRZI decoder
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-; Resync on rising edge
-pin_low:
-    jmp pin pin_went_high   side db1
-pin_went_low:
-    jmp pin pin_went_high   side db1
-    jmp pin pin_went_high   side db1
-    jmp pin pin_went_high   side db1
-    jmp pin pin_went_high   side db1
-    jmp pin pin_went_high   side db1
-.wrap
-
-pin_still_high:
-    mov x, isr [2] 			side db1
-    jmp x-- eop	     		side db1     ; Jump to eop if jmp_pin and in_pin are high because both inputs are inverted
-; Jump to here on rising edge
-pin_went_high:
-    mov isr, null			side db1
-    in pins, 1				side db0     ; Capture the pin to check eop.
-    irq DECODER_TRIGGER		side db0     ; Trigger NRZI decoder
-    jmp pin pin_still_high  side db0
-    jmp pin_went_low 		side db1     ; To adjust interval of decoder trigger, jump to pin_went_low (not pin_low)
-
-; USB NRZI data decoder
-; 15 instruction
+; both d+/d- must be input invert overrided
 ;            FS(12M)  LS(1.5M)
-; Run at     as fast as possible
+; Run at     120MHz   15MHz
 ; jmp_pin    d+       d- 
-; both d+/d- pin should be input invert overrideed
-; Fill OSR by 1 and set 0 to x before runnning this program
-.program usb_nrzi_decoder
-start:
-    ; set x, 0
-.wrap_target
-set_y:
-    set y, BIT_REPEAT_COUNT
-irq_wait:
-    wait 1 irq DECODER_TRIGGER			; wait signal from edge detector
-    jmp PIN pin_high
-pin_low:
-    jmp !y flip			; ignore stuff bit, without error check
-    jmp !x K1
-K2:
-    ; x==1
-    in null, 1
-    jmp flip
-K1:
-    ; x==0
-    in osr, 1
-    jmp y-- irq_wait
-    
-pin_high:
-    jmp !y flip			; ignore stuff bit, without error check
-    jmp !x J1
-J2:
-    ; x==1
-    in x, 1
-    jmp y-- irq_wait
-J1:
-    ; x==0
-    in null, 1
-flip:
-    mov x, ~x
-.wrap
-.program usb_nrzi_decoder_debug
+; in_pin     d-       d+
+
+.program usb_nrzi_rx_debug
 .side_set 1 opt
+
+;  32 instructions
+
+eop:
+    irq wait IRQ_RX_EOP     side 1
 start:
-    ; set x, 0        side db0
+    jmp pin start
+    irq IRQ_RX_START [1]
 .wrap_target
-set_y:
+reset_B:
     set y, BIT_REPEAT_COUNT
-irq_wait:
-    wait 1 irq DECODER_TRIGGER    ; wait signal from edge detector
-    jmp PIN pin_high
-pin_low:
-    jmp !y flip	side db0	; ignore stuff bit, without error check
-    jmp !x K1 side db0
-K2:
-    ; x==1
-    in null, 1
-    jmp flip
-K1:
-    ; x==0
-    in osr, 1
-    jmp y-- irq_wait
-    
-pin_high:
-    jmp !y flip	side db1	; ignore stuff bit, without error check
-    jmp !x J1 side db1
-J2:
-    ; x==1
-    in x, 1
-    jmp y-- irq_wait
-J1:
-    ; x==0
-    in null, 1
-flip:
-    mov x, ~x
-.wrap
+new_high:
+    jmp pin pin_high_B
+    jmp !y stuffbit_B
+    in NULL,1               side 0
+sync:
+    jmp pin sync_02 [1]
+    jmp pin sync_02
+    jmp pin sync_02
+sync_01:
+    jmp reset_A [1]
+;sync
+pin_high_B:
+    mov osr,pins              ; d+ (input mapping)
+    out x,1
+    jmp x-- eop               ; both data lines zero
+    jmp y--,no_stuffbit_B [2]
+interstep:
+    jmp reset_B [1]
+no_stuffbit_B:
+    ;set x, 0x01
+    in x,1 [1]              side 1
+    jmp new_high
+
+stuffbit_B:
+    nop [6]
+reset_A:
+    set y, BIT_REPEAT_COUNT
+new_low:
+    jmp pin pin_high_A
+    jmp y--,no_stuffbit_A
+    jmp reset_A [6]
+no_stuffbit_A:
+    set x, 0x01
+    in x,1                  side 1
+    jmp new_low [5]
+
+pin_high_A:
+    mov osr,pins
+    out x,1
+    jmp x-- eop
+    jmp !y interstep [2]
+    in NULL,1 [1]           side 0
+    .wrap
+
+sync_02:
+    jmp sync_01
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 % c-sdk {
 #include "hardware/clocks.h"
@@ -171,7 +152,7 @@ static __always_inline void pio_sm_set_jmp_pin(PIO pio, uint sm, uint jmp_pin) {
       (jmp_pin << PIO_SM0_EXECCTRL_JMP_PIN_LSB);
 }
 
-static inline void usb_rx_fs_program_init(PIO pio, uint sm, uint offset, uint pin_dp, uint pin_dm, int pin_debug) {
+static inline void usb_rx_fs_program_init(PIO pio, uint sm, uint pin_dp, uint pin_dm, bool is_fs, int pin_debug) {
   if (pin_dp < pin_dm) {
     pio_sm_set_consecutive_pindirs(pio, sm, pin_dp, 2, false);
   } else {
@@ -185,36 +166,10 @@ static inline void usb_rx_fs_program_init(PIO pio, uint sm, uint offset, uint pi
   pio_sm_config c;
 
   if (pin_debug < 0) {
-    c = usb_nrzi_decoder_program_get_default_config(offset);
+    c = usb_nrzi_rx_program_get_default_config(0);
   } else {
-    c = usb_nrzi_decoder_debug_program_get_default_config(offset);
+    c = usb_nrzi_rx_debug_program_get_default_config(0);
 
-    pio_sm_set_pins_with_mask(pio, sm, 0, 1 << pin_debug);
-    pio_sm_set_pindirs_with_mask(pio, sm, 1 << pin_debug, 1 << pin_debug);
-    pio_gpio_init(pio, pin_debug);
-    sm_config_set_sideset_pins(&c, pin_debug);
-  }
-
-  sm_config_set_in_pins(&c, pin_dp);  // for WAIT, IN
-  sm_config_set_jmp_pin(&c, pin_dp);  // for JMP
-
-  // Shift to right, autopull enabled, 8bit
-  sm_config_set_in_shift(&c, true, true, 8);
-  sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
-
-  pio_sm_init(pio, sm, offset, &c);
-  pio_sm_exec(pio, sm, pio_encode_mov_not(pio_osr, pio_null));
-  pio_sm_set_enabled(pio, sm, false);
-}
-
-static inline void eop_detect_fs_program_init(PIO pio, uint sm, uint offset,
-                                           uint pin_dp, uint pin_dm, bool is_fs, int pin_debug) {
-  pio_sm_config c;
-
-  if (pin_debug < 0) {
-    c = usb_edge_detector_program_get_default_config(offset);
-  } else {
-    c = usb_edge_detector_debug_program_get_default_config(offset);
     pio_sm_set_pins_with_mask(pio, sm, 0, 1 << pin_debug);
     pio_sm_set_pindirs_with_mask(pio, sm, 1 << pin_debug, 1 << pin_debug);
     pio_gpio_init(pio, pin_debug);
@@ -224,18 +179,21 @@ static inline void eop_detect_fs_program_init(PIO pio, uint sm, uint offset,
   sm_config_set_in_pins(&c, pin_dp);  // for WAIT, IN
   sm_config_set_jmp_pin(&c, pin_dm);  // for JMP
 
-  sm_config_set_in_shift(&c, false, false, 8);
+  // Shift to right, autopull enabled, 8bit
+  sm_config_set_in_shift(&c, true, true, 8);
+  sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
 
   float div;
   if (is_fs) {
-    div = (float)clock_get_hz(clk_sys) / (96000000);
+    div = (float)clock_get_hz(clk_sys) / (120000000);
   } else {
-    div = (float)clock_get_hz(clk_sys) / (12000000);
+    div = (float)clock_get_hz(clk_sys) / (15000000);
   }
 
   sm_config_set_clkdiv(&c, div);
 
-  pio_sm_init(pio, sm, offset + 1, &c);
+  pio_sm_init(pio, sm, 1, &c);
+
   pio_sm_set_enabled(pio, sm, true);
 }
 

@@ -49,24 +49,17 @@ typedef struct {
 typedef struct {
   PIO pio_usb_tx; // could not set to volatile
   uint sm_tx;
-  uint offset_tx;
+  uint tx_fsdp_lsdm_reset_instr;
+  uint tx_fsdm_lsdp_reset_instr;
+  uint tx_post_reset_instr;
+  uint tx_send_pre_instr;
   uint tx_ch;
 
   PIO pio_usb_rx; // could not set to volatile
   uint sm_rx;
-  uint offset_rx;
-  uint sm_eop;
-  uint offset_eop;
   uint rx_reset_instr;
-  uint rx_reset_instr2;
   uint device_rx_irq_num;
-
   int8_t debug_pin_rx;
-  int8_t debug_pin_eop;
-
-  const pio_program_t *fs_tx_program;
-  const pio_program_t *fs_tx_pre_program;
-  const pio_program_t *ls_tx_program;
 
   pio_clk_div_t clk_div_fs_tx;
   pio_clk_div_t clk_div_fs_rx;
@@ -108,8 +101,7 @@ extern pio_port_t pio_port[1];
 #define IRQ_TX_ALL_MASK (IRQ_TX_EOP_MASK | IRQ_TX_COMP_MASK)
 #define IRQ_RX_COMP_MASK (1 << IRQ_RX_EOP)
 #define IRQ_RX_ALL_MASK                                             \
-  ((1 << IRQ_RX_EOP) | (1 << IRQ_RX_BS_ERR) | (1 << IRQ_RX_START) | \
-   (1 << DECODER_TRIGGER))
+  ((1 << IRQ_RX_EOP) | (1 << IRQ_RX_BS_ERR) | (1 << IRQ_RX_START))
 
 #define SM_SET_CLKDIV(pio, sm, div)                                            \
   pio_sm_set_clkdiv_int_frac(pio, sm, div.div_int, div.div_frac)

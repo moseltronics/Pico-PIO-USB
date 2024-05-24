@@ -1,6 +1,7 @@
 /**
  * Copyright (c) 2021 sekigon-gonnoc
  *                    Ha Thach (thach@tinyusb.org)
+ *          modified by georg laska (moseltronics)
  */
 
 #pragma GCC push_options
@@ -67,11 +68,10 @@ usb_device_t *pio_usb_host_init(const pio_usb_configuration_t *c) {
   pio_calculate_clkdiv_from_float(cpu_freq / 6000000,
                                   &pp->clk_div_ls_tx.div_int,
                                   &pp->clk_div_ls_tx.div_frac);
-
-  pio_calculate_clkdiv_from_float(cpu_freq / 96000000,
+  pio_calculate_clkdiv_from_float(cpu_freq / 120000000,
                                   &pp->clk_div_fs_rx.div_int,
                                   &pp->clk_div_fs_rx.div_frac);
-  pio_calculate_clkdiv_from_float(cpu_freq / 12000000,
+  pio_calculate_clkdiv_from_float(cpu_freq / 15000000,
                                   &pp->clk_div_ls_rx.div_int,
                                   &pp->clk_div_ls_rx.div_frac);
 
@@ -104,54 +104,66 @@ void pio_usb_host_restart(void) {
 // Bus functions
 //--------------------------------------------------------------------+
 
-static void __no_inline_not_in_flash_func(override_pio_program)(PIO pio, const pio_program_t* program, uint offset) {
+static void __no_inline_not_in_flash_func(override_pio_program)(PIO pio, const pio_program_t* program) {
     for (uint i = 0; i < program->length; ++i) {
       uint16_t instr = program->instructions[i];
-      pio->instr_mem[offset + i] =
+      pio->instr_mem[i] =
           pio_instr_bits_jmp != _pio_major_instr_bits(instr) ? instr
-                                                             : instr + offset;
+                                                             : instr + 0;
     }
 }
 
 static __always_inline void override_pio_rx_program(PIO pio,
                                              const pio_program_t *program,
                                              const pio_program_t *debug_program,
-                                             uint offset, int debug_pin) {
+                                             int debug_pin) {
   if (debug_pin < 0) {
-    override_pio_program(pio, program, offset);
+    override_pio_program(pio, program);
   } else {
-    override_pio_program(pio, debug_program, offset);
+    override_pio_program(pio, debug_program);
   }
 }
 
 static void __no_inline_not_in_flash_func(configure_fullspeed_host)(
     pio_port_t const *pp, root_port_t *port) {
-  override_pio_program(pp->pio_usb_tx, pp->fs_tx_program, pp->offset_tx);
+
   SM_SET_CLKDIV(pp->pio_usb_tx, pp->sm_tx, pp->clk_div_fs_tx);
 
-  pio_sm_set_jmp_pin(pp->pio_usb_rx, pp->sm_rx, port->pin_dp);
-  SM_SET_CLKDIV_MAXSPEED(pp->pio_usb_rx, pp->sm_rx);
+  pio_sm_set_jmp_pin(pp->pio_usb_rx, pp->sm_rx, port->pin_dm);
+  SM_SET_CLKDIV(pp->pio_usb_rx, pp->sm_rx, pp->clk_div_fs_rx);
 
-  pio_sm_set_jmp_pin(pp->pio_usb_rx, pp->sm_eop, port->pin_dm);
-  pio_sm_set_in_pins(pp->pio_usb_rx, pp->sm_eop, port->pin_dp);
-  SM_SET_CLKDIV(pp->pio_usb_rx, pp->sm_eop, pp->clk_div_fs_rx);
+  pio_sm_set_in_pins(pp->pio_usb_rx, pp->sm_rx, port->pin_dp);
 
-  usb_tx_configure_pins(pp->pio_usb_tx, pp->sm_tx, port->pin_dp, port->pin_dm);
+  usb_fs_tx_configure_pins(pp->pio_usb_tx, pp->sm_tx, port->pin_dp, port->pin_dm);
+
+  if (port->pin_dp < port->pin_dm) {
+    pio_sm_exec(pp->pio_usb_tx, pp->sm_tx, pp->tx_fsdp_lsdm_reset_instr);
+  } else {
+    pio_sm_exec(pp->pio_usb_tx, pp->sm_tx, pp->tx_fsdm_lsdp_reset_instr);
+  }
+
+  pio_sm_exec(pp->pio_usb_tx, pp->sm_tx, pp->tx_post_reset_instr);
 }
 
 static void __no_inline_not_in_flash_func(configure_lowspeed_host)(
     pio_port_t const *pp, root_port_t *port) {
-  override_pio_program(pp->pio_usb_tx, pp->ls_tx_program, pp->offset_tx);
+
   SM_SET_CLKDIV(pp->pio_usb_tx, pp->sm_tx, pp->clk_div_ls_tx);
 
-  pio_sm_set_jmp_pin(pp->pio_usb_rx, pp->sm_rx, port->pin_dm);
-  SM_SET_CLKDIV_MAXSPEED(pp->pio_usb_rx, pp->sm_rx);
+  pio_sm_set_jmp_pin(pp->pio_usb_rx, pp->sm_rx, port->pin_dp);
+  SM_SET_CLKDIV(pp->pio_usb_rx, pp->sm_rx, pp->clk_div_ls_rx);
 
-  pio_sm_set_jmp_pin(pp->pio_usb_rx, pp->sm_eop, port->pin_dp);
-  pio_sm_set_in_pins(pp->pio_usb_rx, pp->sm_eop, port->pin_dm);
-  SM_SET_CLKDIV(pp->pio_usb_rx, pp->sm_eop, pp->clk_div_ls_rx);
+  pio_sm_set_in_pins(pp->pio_usb_rx, pp->sm_rx, port->pin_dm);
 
-  usb_tx_configure_pins(pp->pio_usb_tx, pp->sm_tx, port->pin_dp, port->pin_dm);
+  usb_ls_tx_configure_pins(pp->pio_usb_tx, pp->sm_tx, port->pin_dp, port->pin_dm);
+
+  if (port->pin_dm < port->pin_dp) {
+    pio_sm_exec(pp->pio_usb_tx, pp->sm_tx, pp->tx_fsdp_lsdm_reset_instr);
+  } else {
+    pio_sm_exec(pp->pio_usb_tx, pp->sm_tx, pp->tx_fsdm_lsdp_reset_instr);
+  }
+
+  pio_sm_exec(pp->pio_usb_tx, pp->sm_tx, pp->tx_post_reset_instr);
 }
 
 static void __no_inline_not_in_flash_func(configure_root_port)(
@@ -169,12 +181,10 @@ static void __no_inline_not_in_flash_func(restore_fs_bus)(const pio_port_t *pp) 
   SM_SET_CLKDIV(pp->pio_usb_tx, pp->sm_tx, pp->clk_div_fs_tx);
 
   pio_sm_set_enabled(pp->pio_usb_rx, pp->sm_rx, false);
-  SM_SET_CLKDIV_MAXSPEED(pp->pio_usb_rx, pp->sm_rx);
-  pio_sm_set_enabled(pp->pio_usb_rx, pp->sm_rx, true);
+  SM_SET_CLKDIV(pp->pio_usb_rx, pp->sm_rx, pp->clk_div_fs_rx);
 
-  pio_sm_set_enabled(pp->pio_usb_rx, pp->sm_eop, false);
-  SM_SET_CLKDIV(pp->pio_usb_rx, pp->sm_eop, pp->clk_div_fs_rx);
-  pio_sm_set_enabled(pp->pio_usb_rx, pp->sm_eop, true);
+  pio_sm_exec(pp->pio_usb_rx, pp->sm_rx, pp->rx_reset_instr);
+  pio_sm_set_enabled(pp->pio_usb_rx, pp->sm_rx, true);
 }
 
 // Time about 1us ourselves so it lives in RAM.
@@ -343,8 +353,25 @@ void pio_usb_host_port_reset_start(uint8_t root_idx) {
   root->suspended = true;
 
   // Force line state to SE0
-  pio_sm_set_pins_with_mask(pp->pio_usb_tx, pp->sm_tx, 0,
+
+  if (root->is_fullspeed) {
+    if (root->pin_dp < root->pin_dm) {
+      pio_sm_set_pins_with_mask(pp->pio_usb_tx, pp->sm_tx, 0,
                             (1 << root->pin_dp) | (1 << root->pin_dm));
+    }
+    else {
+      pio_sm_set_pins_with_mask(pp->pio_usb_tx, pp->sm_tx, (1 << root->pin_dp) | (1 << root->pin_dm),
+                            (1 << root->pin_dp) | (1 << root->pin_dm));
+    }
+  } else if (root->pin_dp < root->pin_dm) {
+      pio_sm_set_pins_with_mask(pp->pio_usb_tx, pp->sm_tx, (1 << root->pin_dp) | (1 << root->pin_dm),
+                            (1 << root->pin_dp) | (1 << root->pin_dm));
+  }
+  else {
+      pio_sm_set_pins_with_mask(pp->pio_usb_tx, pp->sm_tx, 0,
+                            (1 << root->pin_dp) | (1 << root->pin_dm));
+  }
+
   pio_sm_set_pindirs_with_mask(pp->pio_usb_tx, pp->sm_tx,
                                (1 << root->pin_dp) | (1 << root->pin_dm),
                                (1 << root->pin_dp) | (1 << root->pin_dm));
@@ -513,6 +540,7 @@ static int __no_inline_not_in_flash_func(usb_in_transaction)(pio_port_t *pp,
   }
 
   pio_sm_set_enabled(pp->pio_usb_rx, pp->sm_rx, false);
+
   pp->usb_rx_buffer[0] = 0;
   pp->usb_rx_buffer[1] = 0;
 
@@ -550,6 +578,7 @@ static int __no_inline_not_in_flash_func(usb_out_transaction)(pio_port_t *pp,
   }
 
   pio_sm_set_enabled(pp->pio_usb_rx, pp->sm_rx, false);
+
   pp->usb_rx_buffer[0] = 0;
   pp->usb_rx_buffer[1] = 0;
 
@@ -601,12 +630,28 @@ static void on_device_connect(pio_port_t *pp, root_port_t *root,
 
   if (pio_usb_bus_get_line_state(root) == PORT_PIN_FS_IDLE) {
     fullspeed_flag = true;
+
+    if (root->pin_dp < root->pin_dm) {
+      pio_sm_set_pins_with_mask(pp->pio_usb_tx, pp->sm_tx, 0,
+                            (1 << root->pin_dp) | (1 << root->pin_dm));
+    }
+    else {
+      pio_sm_set_pins_with_mask(pp->pio_usb_tx, pp->sm_tx, (1 << root->pin_dp) | (1 << root->pin_dm),
+                            (1 << root->pin_dp) | (1 << root->pin_dm));
+    }
   } else if (pio_usb_bus_get_line_state(root) == PORT_PIN_LS_IDLE) {
     fullspeed_flag = false;
+
+    if (root->pin_dp < root->pin_dm) {
+      pio_sm_set_pins_with_mask(pp->pio_usb_tx, pp->sm_tx, (1 << root->pin_dp) | (1 << root->pin_dm),
+                            (1 << root->pin_dp) | (1 << root->pin_dm));
+    }
+    else {
+      pio_sm_set_pins_with_mask(pp->pio_usb_tx, pp->sm_tx, 0,
+                            (1 << root->pin_dp) | (1 << root->pin_dm));
+    }
   }
 
-  pio_sm_set_pins_with_mask(pp->pio_usb_tx, pp->sm_tx, 0,
-                            (1 << root->pin_dp) | (1 << root->pin_dm));
   pio_sm_set_pindirs_with_mask(pp->pio_usb_tx, pp->sm_tx,
                                (1 << root->pin_dp) | (1 << root->pin_dm),
                                (1 << root->pin_dp) | (1 << root->pin_dm));
