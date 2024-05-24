@@ -8,50 +8,57 @@
 #include "hardware/pio.h"
 #endif
 
-#define USB_TX_EOP_OFFSET 4
-#define USB_TX_EOP_DISABLER_LEN 4
+#define PRE_JMP_ADR 4
+#define DPDM_JMP_ADR 8
+#define DMDP_JMP_ADR 10
 
 // ----------- //
 // usb_tx_dpdm //
 // ----------- //
 
 #define usb_tx_dpdm_wrap_target 2
-#define usb_tx_dpdm_wrap 21
+#define usb_tx_dpdm_wrap 27
 
 #define usb_tx_dpdm_IRQ_COMP 0
 #define usb_tx_dpdm_IRQ_EOP 1
 
-static const uint16_t __not_in_flash("tx_program") usb_tx_dpdm_program_instructions[] = {
+static const uint16_t usb_tx_dpdm_program_instructions[] = {
     0xf445, //  0: set    y, 5            side 1     
     0xe083, //  1: set    pindirs, 3                 
             //     .wrap_target
-    0x00ea, //  2: jmp    !osre, 10                  
-    0xa142, //  3: nop                           [1] 
-    0xd301, //  4: irq    nowait 1        side 0 [3] 
-    0xa342, //  5: nop                           [3] 
-    0xb442, //  6: nop                    side 1     
-    0xe380, //  7: set    pindirs, 0             [3] 
-    0xc020, //  8: irq    wait 0                     
-    0x0000, //  9: jmp    0                          
-    0x6021, // 10: out    x, 1                       
-    0x002e, // 11: jmp    !x, 14                     
-    0x1482, // 12: jmp    y--, 2          side 1     
-    0xa242, // 13: nop                           [2] 
-    0xf845, // 14: set    y, 5            side 2     
-    0x00f1, // 15: jmp    !osre, 17                  
-    0x0104, // 16: jmp    4                      [1] 
-    0x6021, // 17: out    x, 1                       
-    0x0035, // 18: jmp    !x, 21                     
-    0x188f, // 19: jmp    y--, 15         side 2     
-    0xa242, // 20: nop                           [2] 
-    0xf445, // 21: set    y, 5            side 1     
+    0x00f0, //  2: jmp    !osre, 16                  
+    0xa1a6, //  3: mov    pc, isr                [1] 
+    0xd701, //  4: irq    nowait 1        side 1 [3] 
+    0xe080, //  5: set    pindirs, 0                 
+    0xc020, //  6: irq    wait 0                     
+    0x0000, //  7: jmp    0                          
+    0xd301, //  8: irq    nowait 1        side 0 [3] 
+    0x030c, //  9: jmp    12                     [3] 
+    0xdf01, // 10: irq    nowait 1        side 3 [3] 
+    0xa342, // 11: nop                           [3] 
+    0xb442, // 12: nop                    side 1     
+    0xe280, // 13: set    pindirs, 0             [2] 
+    0xc020, // 14: irq    wait 0                     
+    0x0000, // 15: jmp    0                          
+    0x6021, // 16: out    x, 1                       
+    0x0034, // 17: jmp    !x, 20                     
+    0x1482, // 18: jmp    y--, 2          side 1     
+    0xa242, // 19: nop                           [2] 
+    0xf845, // 20: set    y, 5            side 2     
+    0x00f7, // 21: jmp    !osre, 23                  
+    0xa1a6, // 22: mov    pc, isr                [1] 
+    0x6021, // 23: out    x, 1                       
+    0x003b, // 24: jmp    !x, 27                     
+    0x1895, // 25: jmp    y--, 21         side 2     
+    0xa242, // 26: nop                           [2] 
+    0xf445, // 27: set    y, 5            side 1     
             //     .wrap
 };
 
 #if !PICO_NO_HARDWARE
-static const struct pio_program __not_in_flash("tx_program") usb_tx_dpdm_program = {
+static const struct pio_program usb_tx_dpdm_program = {
     .instructions = usb_tx_dpdm_program_instructions,
-    .length = 22,
+    .length = 28,
     .origin = -1,
 };
 
@@ -61,183 +68,46 @@ static inline pio_sm_config usb_tx_dpdm_program_get_default_config(uint offset) 
     sm_config_set_sideset(&c, 3, true, false);
     return c;
 }
-#endif
-
-// --------------- //
-// usb_tx_pre_dpdm //
-// --------------- //
-
-#define usb_tx_pre_dpdm_wrap_target 2
-#define usb_tx_pre_dpdm_wrap 21
-
-#define usb_tx_pre_dpdm_IRQ_COMP 0
-#define usb_tx_pre_dpdm_IRQ_EOP 1
-
-static const uint16_t __not_in_flash("tx_program") usb_tx_pre_dpdm_program_instructions[] = {
-    0xf445, //  0: set    y, 5            side 1     
-    0xe083, //  1: set    pindirs, 3                 
-            //     .wrap_target
-    0x00ea, //  2: jmp    !osre, 10                  
-    0xa142, //  3: nop                           [1] 
-    0xd701, //  4: irq    nowait 1        side 1 [3] 
-    0xe080, //  5: set    pindirs, 0                 
-    0xa042, //  6: nop                               
-    0xa042, //  7: nop                               
-    0xc020, //  8: irq    wait 0                     
-    0x0000, //  9: jmp    0                          
-    0x6021, // 10: out    x, 1                       
-    0x002e, // 11: jmp    !x, 14                     
-    0x1482, // 12: jmp    y--, 2          side 1     
-    0xa242, // 13: nop                           [2] 
-    0xf845, // 14: set    y, 5            side 2     
-    0x00f1, // 15: jmp    !osre, 17                  
-    0x0104, // 16: jmp    4                      [1] 
-    0x6021, // 17: out    x, 1                       
-    0x0035, // 18: jmp    !x, 21                     
-    0x188f, // 19: jmp    y--, 15         side 2     
-    0xa242, // 20: nop                           [2] 
-    0xf445, // 21: set    y, 5            side 1     
-            //     .wrap
-};
-
-#if !PICO_NO_HARDWARE
-static const struct pio_program __not_in_flash("tx_program") usb_tx_pre_dpdm_program = {
-    .instructions = usb_tx_pre_dpdm_program_instructions,
-    .length = 22,
-    .origin = -1,
-};
-
-static inline pio_sm_config usb_tx_pre_dpdm_program_get_default_config(uint offset) {
-    pio_sm_config c = pio_get_default_sm_config();
-    sm_config_set_wrap(&c, offset + usb_tx_pre_dpdm_wrap_target, offset + usb_tx_pre_dpdm_wrap);
-    sm_config_set_sideset(&c, 3, true, false);
-    return c;
-}
-#endif
-
-// ----------- //
-// usb_tx_dmdp //
-// ----------- //
-
-#define usb_tx_dmdp_wrap_target 2
-#define usb_tx_dmdp_wrap 21
-
-#define usb_tx_dmdp_IRQ_COMP 0
-#define usb_tx_dmdp_IRQ_EOP 1
-
-static const uint16_t __not_in_flash("tx_program") usb_tx_dmdp_program_instructions[] = {
-    0xf845, //  0: set    y, 5            side 2     
-    0xe083, //  1: set    pindirs, 3                 
-            //     .wrap_target
-    0x00ea, //  2: jmp    !osre, 10                  
-    0xa142, //  3: nop                           [1] 
-    0xd301, //  4: irq    nowait 1        side 0 [3] 
-    0xa342, //  5: nop                           [3] 
-    0xb842, //  6: nop                    side 2     
-    0xe380, //  7: set    pindirs, 0             [3] 
-    0xc020, //  8: irq    wait 0                     
-    0x0000, //  9: jmp    0                          
-    0x6021, // 10: out    x, 1                       
-    0x002e, // 11: jmp    !x, 14                     
-    0x1882, // 12: jmp    y--, 2          side 2     
-    0xa242, // 13: nop                           [2] 
-    0xf445, // 14: set    y, 5            side 1     
-    0x00f1, // 15: jmp    !osre, 17                  
-    0x0104, // 16: jmp    4                      [1] 
-    0x6021, // 17: out    x, 1                       
-    0x0035, // 18: jmp    !x, 21                     
-    0x148f, // 19: jmp    y--, 15         side 1     
-    0xa242, // 20: nop                           [2] 
-    0xf845, // 21: set    y, 5            side 2     
-            //     .wrap
-};
-
-#if !PICO_NO_HARDWARE
-static const struct pio_program __not_in_flash("tx_program") usb_tx_dmdp_program = {
-    .instructions = usb_tx_dmdp_program_instructions,
-    .length = 22,
-    .origin = -1,
-};
-
-static inline pio_sm_config usb_tx_dmdp_program_get_default_config(uint offset) {
-    pio_sm_config c = pio_get_default_sm_config();
-    sm_config_set_wrap(&c, offset + usb_tx_dmdp_wrap_target, offset + usb_tx_dmdp_wrap);
-    sm_config_set_sideset(&c, 3, true, false);
-    return c;
-}
-#endif
-
-// --------------- //
-// usb_tx_pre_dmdp //
-// --------------- //
-
-#define usb_tx_pre_dmdp_wrap_target 2
-#define usb_tx_pre_dmdp_wrap 21
-
-#define usb_tx_pre_dmdp_IRQ_COMP 0
-#define usb_tx_pre_dmdp_IRQ_EOP 1
-
-static const uint16_t __not_in_flash("tx_program") usb_tx_pre_dmdp_program_instructions[] = {
-    0xf845, //  0: set    y, 5            side 2     
-    0xe083, //  1: set    pindirs, 3                 
-            //     .wrap_target
-    0x00ea, //  2: jmp    !osre, 10                  
-    0xa142, //  3: nop                           [1] 
-    0xdb01, //  4: irq    nowait 1        side 2 [3] 
-    0xe080, //  5: set    pindirs, 0                 
-    0xa042, //  6: nop                               
-    0xa042, //  7: nop                               
-    0xc020, //  8: irq    wait 0                     
-    0x0000, //  9: jmp    0                          
-    0x6021, // 10: out    x, 1                       
-    0x002e, // 11: jmp    !x, 14                     
-    0x1882, // 12: jmp    y--, 2          side 2     
-    0xa242, // 13: nop                           [2] 
-    0xf445, // 14: set    y, 5            side 1     
-    0x00f1, // 15: jmp    !osre, 17                  
-    0x0104, // 16: jmp    4                      [1] 
-    0x6021, // 17: out    x, 1                       
-    0x0035, // 18: jmp    !x, 21                     
-    0x148f, // 19: jmp    y--, 15         side 1     
-    0xa242, // 20: nop                           [2] 
-    0xf845, // 21: set    y, 5            side 2     
-            //     .wrap
-};
-
-#if !PICO_NO_HARDWARE
-static const struct pio_program __not_in_flash("tx_program") usb_tx_pre_dmdp_program = {
-    .instructions = usb_tx_pre_dmdp_program_instructions,
-    .length = 22,
-    .origin = -1,
-};
-
-static inline pio_sm_config usb_tx_pre_dmdp_program_get_default_config(uint offset) {
-    pio_sm_config c = pio_get_default_sm_config();
-    sm_config_set_wrap(&c, offset + usb_tx_pre_dmdp_wrap_target, offset + usb_tx_pre_dmdp_wrap);
-    sm_config_set_sideset(&c, 3, true, false);
-    return c;
-}
 
 #include "hardware/clocks.h"
-  static void __no_inline_not_in_flash_func(usb_tx_configure_pins)(PIO pio, uint sm, uint pin_dp, uint pin_dm) {
+  static void __no_inline_not_in_flash_func(usb_fs_tx_configure_pins)(PIO pio, uint sm, uint pin_dp, uint pin_dm) {
     if (pin_dp < pin_dm) {
       pio_sm_set_out_pins(pio, sm, pin_dp, 2);
       pio_sm_set_set_pins(pio, sm, pin_dp, 2);
       pio_sm_set_sideset_pins(pio, sm, pin_dp);
+      gpio_set_outover(pin_dp, GPIO_OVERRIDE_NORMAL); // for fullspeed
+      gpio_set_outover(pin_dm, GPIO_OVERRIDE_NORMAL);
     } else {
       pio_sm_set_out_pins(pio, sm, pin_dm, 2);
       pio_sm_set_set_pins(pio, sm, pin_dm, 2);
       pio_sm_set_sideset_pins(pio, sm, pin_dm);
+      gpio_set_outover(pin_dp, GPIO_OVERRIDE_INVERT); // for fullspeed
+      gpio_set_outover(pin_dm, GPIO_OVERRIDE_INVERT);
     }
   }
-  static inline void usb_tx_fs_program_init(PIO pio, uint sm, uint offset,
+  static void __no_inline_not_in_flash_func(usb_ls_tx_configure_pins)(PIO pio, uint sm, uint pin_dp, uint pin_dm) {
+    if (pin_dm < pin_dp) {
+      pio_sm_set_out_pins(pio, sm, pin_dm, 2);
+      pio_sm_set_set_pins(pio, sm, pin_dm, 2);
+      pio_sm_set_sideset_pins(pio, sm, pin_dm);
+      gpio_set_outover(pin_dp, GPIO_OVERRIDE_NORMAL); // for lowspeed
+      gpio_set_outover(pin_dm, GPIO_OVERRIDE_NORMAL);
+    } else {
+      pio_sm_set_out_pins(pio, sm, pin_dp, 2);
+      pio_sm_set_set_pins(pio, sm, pin_dp, 2);
+      pio_sm_set_sideset_pins(pio, sm, pin_dp);
+      gpio_set_outover(pin_dp, GPIO_OVERRIDE_INVERT); // for lowspeed
+      gpio_set_outover(pin_dm, GPIO_OVERRIDE_INVERT);
+    }
+  }
+  static inline void usb_tx_fs_program_init(PIO pio, uint sm,
                                          uint pin_dp, uint pin_dm) {
     pio_sm_set_pins_with_mask(pio, sm, (1 << pin_dp), ((1 << pin_dp) | (1 << pin_dm)));
     gpio_pull_down(pin_dp);
     gpio_pull_down(pin_dm);
     pio_gpio_init(pio, pin_dp);
     pio_gpio_init(pio, pin_dm);
-    pio_sm_config c = usb_tx_dpdm_program_get_default_config(offset);
+    pio_sm_config c = usb_tx_dpdm_program_get_default_config(0);
     // shifts to left, autopull, 8bit
     sm_config_set_out_shift(&c, true, true, 8);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
@@ -245,28 +115,16 @@ static inline pio_sm_config usb_tx_pre_dmdp_program_get_default_config(uint offs
     // clk_sys should be multiply of 12MHz
     float div = (float)clock_get_hz(clk_sys) / (48000000UL);
     sm_config_set_clkdiv(&c, div);
-    pio_sm_init(pio, sm, offset, &c);
-    usb_tx_configure_pins(pio, sm, pin_dp, pin_dm);
-    pio_sm_set_enabled(pio, sm, true);
-  }
-  static inline void usb_tx_ls_program_init(PIO pio, uint sm, uint offset,
-                                         uint pin_dp, uint pin_dm) {
-    pio_sm_set_pins_with_mask(pio, sm, (1 << pin_dm), ((1 << pin_dp) | (1 << pin_dm)));
-    gpio_pull_down(pin_dp);
-    gpio_pull_down(pin_dm);
-    pio_gpio_init(pio, pin_dp);
-    pio_gpio_init(pio, pin_dm);
-    pio_sm_config c = usb_tx_dmdp_program_get_default_config(offset);
-    // shifts to left, autopull, 8bit
-    sm_config_set_out_shift(&c, true, true, 8);
-    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
-    // run at 6MHz
-    // clk_sys should be multiply of 12MHz
-    float div = (float)clock_get_hz(clk_sys) / (6000000UL);
-    sm_config_set_clkdiv(&c, div);
-    pio_sm_init(pio, sm, offset, &c);
-    usb_tx_configure_pins(pio, sm, pin_dp, pin_dm);
-    pio_sm_set_enabled(pio, sm, true);
+    pio_sm_init(pio, sm, 0, &c);
+    usb_fs_tx_configure_pins(pio, sm, pin_dp, pin_dm);
+    // for fullspeed
+    if (pin_dp < pin_dm) {
+      pio_sm_exec(pio, sm, pio_encode_set(pio_x, DPDM_JMP_ADR));
+    } else {
+      pio_sm_exec(pio, sm, pio_encode_set(pio_x, DMDP_JMP_ADR));
+    }
+    pio_sm_exec(pio, sm, pio_encode_mov(pio_isr, pio_x));
+    pio_sm_set_enabled(pio, sm, false);
   }
 
 #endif
