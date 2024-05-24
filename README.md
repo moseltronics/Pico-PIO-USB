@@ -1,4 +1,31 @@
 # Pico-PIO-USB
+--- modified version ---
+
+First of all thanks to sekigon-gonnoc and Ha Thach for their great work on this library.
+The original description is below.
+
+What i tried to change was:
+- RX only running on one state machine instead of 2
+- having only one TX program instead of 4
+How it could be achieved:
+- fequency for RX was increased to 120 MHz (was 96)
+- synchronizing was reduced
+- inverting output and changing jump adrresses for TX in dependence of the requirements
+- surrounding files had to be adapted
+Experiences:
+- couldn't find any disadvantages
+- worked with 4 root ports (and one regular device port) as a midi interface
+- a simple device example did work, too
+- swapping data pins did work
+How to try it out:
+- if Pico-Pio-Usb is installed, just overwrite the existing files in tinyusb/hw/mcu/raspberry_pi/Pico-PIO-USB/src
+- or copy everything into a subdirectory of your project with adding the following to the projects CMakeLists.txt:
+- (for example:)
+-     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/Pico-PIO-USB)
+- (and later on)
+-     add "pico-pio-usb" to "target_link_libraries(${target_proj}"
+
+--- original description ---
 
 USB host/device implementation using PIO of raspberry pi pico (RP2040).
 
