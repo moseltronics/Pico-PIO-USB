@@ -9,7 +9,7 @@ What i tried to change was:
 - having only one TX program instead of 4
 
 How it could be achieved:
-- fequency for RX was increased to 120 MHz (was 96)
+- frequency for RX was increased to 120 MHz (was 96)
 - synchronizing was reduced
 - inverting output and changing jump adrresses for TX in dependence of the requirements
 - surrounding files had to be adapted
